@@ -57,7 +57,7 @@ class AppConfig:
     DB_NAME = env_first("DB_NAME", "DB_DATABASE", default="yujincast")
 
     FLASK_HOST = os.getenv("FLASK_HOST", "0.0.0.0")
-    FLASK_PORT = int(os.getenv("FLASK_PORT", "5003"))
+    FLASK_PORT = int(env_first("PORT", "FLASK_PORT", default="5003"))
     FLASK_DEBUG = os.getenv("FLASK_DEBUG", "true").strip().lower() in {
         "1",
         "true",

@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: wrong-note-flask
+    env: docker
+    rootDir: WrongNoteFlask
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 8080
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: DB_SERVER
+        sync: false
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_DRIVER
+        value: ODBC Driver 18 for SQL Server
