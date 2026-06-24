@@ -1,0 +1,7 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.31
+pyodbc==5.1.0
+opencv-python-headless==4.10.0.84
+numpy==2.1.1
+python-dotenv==1.0.1

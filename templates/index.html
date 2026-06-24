@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오답노트</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="phone-shell">
+    <header class="topbar fade-up">
+      <div class="topbar-left">
+        <button class="icon-btn" aria-label="메뉴">☰</button>
+        <h1>오답노트</h1>
+      </div>
+      <div class="actions">
+        <button class="icon-btn" aria-label="검색">⌕</button>
+        <button class="new-btn" id="openNewNoteModal" type="button">+ 새 오답</button>
+      </div>
+    </header>
+
+    <section class="today-card fade-up delay-1">
+      <div class="today-left">
+        <div class="calendar-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="2" width="16" height="18" rx="2"></rect>
+            <path d="M8 1v4M16 1v4M4 7h16"></path>
+            <path d="m10 13.5 1.5 1.5 3-3"></path>
+          </svg>
+        </div>
+        <div>
+          <p>오늘 복습할 문제</p>
+          <strong><span class="num">{{ stats.review_today }}</span><span class="unit">개</span></strong>
+        </div>
+      </div>
+      <button class="ghost-btn" type="button">복습 시작 ›</button>
+    </section>
+
+    {% if db_error %}
+    <section class="db-warning fade-up delay-2">{{ db_error }}</section>
+    {% endif %}
+
+    <section class="stats-grid fade-up delay-2">
+      <article class="stat">
+        <p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <path d="m9 12.5 2 2 4-4"></path>
+            </svg>
+          </span>
+          복습 완료
+        </p>
+        <strong class="mint">{{ stats.completed }}개</strong>
+      </article>
+      <article class="stat">
+        <p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="4" width="18" height="17" rx="2"></rect>
+              <path d="M16 2v4M8 2v4M3 8h18"></path>
+              <circle cx="17" cy="15" r="2.5"></circle>
+              <path d="M17 13.8v1.5l.8.5"></path>
+            </svg>
+          </span>
+          복습 예정
+        </p>
+        <strong class="blue">{{ stats.scheduled }}개</strong>
+      </article>
+      <article class="stat">
+        <p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3 3 20h18L12 3z"></path>
+              <path d="M12 10v4"></path>
+              <circle cx="12" cy="17" r="0.8" fill="currentColor" stroke="none"></circle>
+            </svg>
+          </span>
+          전체 오답
+        </p>
+        <strong class="orange">{{ stats.total }}개</strong>
+      </article>
+      <article class="stat">
+        <p>
+          <span class="stat-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 19h18"></path>
+              <path d="M6 19V10M12 19V8M18 19V13"></path>
+            </svg>
+          </span>
+          정답률
+        </p>
+        <strong class="rose">{{ stats.accuracy }}%</strong>
+      </article>
+    </section>
+
+    <nav class="subject-tabs fade-up delay-3">
+      {% for subject, count in subject_counts.items() %}
+      <a
+        class="tab {% if selected_subject == subject %}active{% endif %}"
+        href="/?subject={{ subject }}"
+      >
+        {{ subject }}
+        <span>{{ count }}</span>
+      </a>
+      {% endfor %}
+    </nav>
+
+    <section class="selection-toolbar fade-up delay-3">
+      <button type="button" class="ghost-btn selection-btn" id="toggleSelectionMode">선택 삭제</button>
+      <button type="button" class="ghost-btn selection-btn danger-btn" id="deleteSelectedNotes" hidden disabled>삭제 실행</button>
+      <span class="selection-count" id="selectionCount" hidden>0개 선택</span>
+    </section>
+
+    <section class="note-list fade-up delay-4">
+      {% for note in notes %}
+      <article
+        class="note-card"
+        data-note-id="{{ note.id }}"
+        data-detail-url="{{ url_for('note_detail', note_id=note.id) }}"
+        role="button"
+        tabindex="0"
+        aria-label="{{ note.title }} 상세 보기"
+      >
+        <label class="note-select" hidden>
+          <input type="checkbox" class="note-select-checkbox" value="{{ note.id }}">
+        </label>
+        {% if note.image_url %}
+        <img src="{{ note.image_url }}" alt="오답 이미지">
+        {% else %}
+        <div class="note-image-placeholder"></div>
+        {% endif %}
+        <div class="note-info">
+          <div class="note-header">
+            <div>
+              <span class="subject-chip subject-{{ note.subject }}">{{ note.subject }}</span>
+              <span class="error-chip">{{ note.error_type }}</span>
+            </div>
+            <div class="note-actions">
+              <button class="star-btn" aria-label="즐겨찾기">☆</button>
+              <button class="menu-btn" aria-label="메뉴">⋮</button>
+            </div>
+          </div>
+          <h2>{{ note.title }}</h2>
+          <p class="date">
+            <span class="date-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="4" y="2" width="16" height="18" rx="2"></rect>
+                <path d="M8 1v4M16 1v4M4 7h16"></path>
+              </svg>
+            </span>
+            {{ note.review_date.strftime('%Y.%m.%d') }}
+          </p>
+        </div>
+      </article>
+      {% else %}
+      <article class="empty-state">
+        <h3>해당 과목 오답이 아직 없어요.</h3>
+        <p>/seed-sample 호출로 샘플을 넣어보세요.</p>
+      </article>
+      {% endfor %}
+    </section>
+
+    <footer class="bottom-nav">
+      <a class="active" href="#">홈</a>
+      <a href="#">오늘 복습</a>
+      <a href="#">새 오답</a>
+      <a href="#">통계</a>
+      <a href="#">마이페이지</a>
+    </footer>
+  </main>
+
+  <section class="modal-backdrop" id="newNoteModal" aria-hidden="true">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="newNoteTitle">
+      <div class="modal-head">
+        <h2 id="newNoteTitle">새 오답 등록</h2>
+        <button class="icon-btn modal-close" id="closeNewNoteModal" type="button" aria-label="닫기">✕</button>
+      </div>
+
+      <form id="newNoteForm" class="new-note-form">
+        <label>
+          <span>과목</span>
+          <select name="subject" required>
+            <option value="수학">수학</option>
+            <option value="영어">영어</option>
+            <option value="과학">과학</option>
+            <option value="국어">국어</option>
+            <option value="기타">기타</option>
+          </select>
+        </label>
+
+        <label>
+          <span>제목</span>
+          <input type="text" name="title" required placeholder="예: 이차함수 최대/최소">
+        </label>
+
+        <label>
+          <span>실수 유형</span>
+          <select name="error_type" required>
+            <option value="계산 실수">계산 실수</option>
+            <option value="개념 부족">개념 부족</option>
+            <option value="기타">기타</option>
+          </select>
+        </label>
+
+        <label>
+          <span>복습일</span>
+          <input type="date" name="review_date" required>
+        </label>
+
+        <label>
+          <span>문제 사진</span>
+          <input
+            id="photoInput"
+            type="file"
+            name="image"
+            accept="image/png,image/jpeg,image/jpg,image/webp,image/gif,image/*"
+            capture="environment"
+            required
+          >
+        </label>
+
+        <img id="photoPreview" class="photo-preview" alt="미리보기" hidden>
+
+        <label>
+          <span>텍스트 붙여넣기</span>
+          <textarea id="pasteText" rows="6" placeholder="문제 텍스트를 붙여넣고 파싱 버튼을 누르세요."></textarea>
+        </label>
+
+        <div class="preview-actions">
+          <button type="button" class="ghost-btn" id="parseTextBtn">붙여넣기 텍스트 파싱</button>
+        </div>
+
+        <label>
+          <span>문제 본문(분리 저장)</span>
+          <textarea id="questionText" name="question_text" rows="5" placeholder="문제 본문을 입력하세요."></textarea>
+        </label>
+
+        <label>
+          <span>보기(줄바꿈으로 분리 저장)</span>
+          <textarea id="choicesText" name="choices_text" rows="4" placeholder="① 3&#10;② 6&#10;③ 12"></textarea>
+        </label>
+
+        <p class="form-hint">모바일에서는 카메라가 바로 열릴 수 있고, PC에서는 파일 선택창이 열립니다.</p>
+        <p class="form-status" id="formStatus" aria-live="polite"></p>
+
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" id="cancelNewNote">취소</button>
+          <button type="submit" class="new-btn" id="submitNewNote">등록하기</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <script>
+    const modal = document.getElementById("newNoteModal");
+    const openBtn = document.getElementById("openNewNoteModal");
+    const closeBtn = document.getElementById("closeNewNoteModal");
+    const cancelBtn = document.getElementById("cancelNewNote");
+    const form = document.getElementById("newNoteForm");
+    const photoInput = document.getElementById("photoInput");
+    const pasteTextEl = document.getElementById("pasteText");
+    const parseTextBtn = document.getElementById("parseTextBtn");
+    const questionTextEl = document.getElementById("questionText");
+    const choicesTextEl = document.getElementById("choicesText");
+    const photoPreview = document.getElementById("photoPreview");
+    const reviewDateInput = form.elements.review_date;
+    const toggleSelectionModeBtn = document.getElementById("toggleSelectionMode");
+    const deleteSelectedNotesBtn = document.getElementById("deleteSelectedNotes");
+    const selectionCountEl = document.getElementById("selectionCount");
+    const formStatus = document.getElementById("formStatus");
+    const submitBtn = document.getElementById("submitNewNote");
+    let selectionMode = true;
+
+    if (reviewDateInput && !reviewDateInput.value) {
+      const today = new Date();
+      const localToday = new Date(today.getTime() - (today.getTimezoneOffset() * 60000));
+      reviewDateInput.value = localToday.toISOString().slice(0, 10);
+    }
+
+    function selectedNoteIds() {
+      return Array.from(document.querySelectorAll(".note-select-checkbox:checked"))
+        .map((checkbox) => Number(checkbox.value))
+        .filter((value) => Number.isFinite(value));
+    }
+
+    function refreshSelectionUi() {
+      const count = selectedNoteIds().length;
+      deleteSelectedNotesBtn.disabled = count === 0;
+      selectionCountEl.textContent = `${count}개 선택`;
+      selectionCountEl.hidden = !selectionMode;
+      deleteSelectedNotesBtn.hidden = !selectionMode;
+
+      document.querySelectorAll(".note-card").forEach((card) => {
+        const label = card.querySelector(".note-select");
+        const checked = card.querySelector(".note-select-checkbox")?.checked;
+        if (label) {
+          label.hidden = !selectionMode;
+        }
+        card.classList.toggle("selection-mode", selectionMode);
+        card.classList.toggle("selected", Boolean(checked));
+      });
+    }
+
+    function openModal() {
+      modal.classList.add("open");
+      modal.setAttribute("aria-hidden", "false");
+      formStatus.textContent = "";
+    }
+
+    function closeModal() {
+      modal.classList.remove("open");
+      modal.setAttribute("aria-hidden", "true");
+    }
+
+    openBtn.addEventListener("click", openModal);
+    closeBtn.addEventListener("click", closeModal);
+    cancelBtn.addEventListener("click", closeModal);
+
+    modal.addEventListener("click", (event) => {
+      if (event.target === modal) {
+        closeModal();
+      }
+    });
+
+    photoInput.addEventListener("change", () => {
+      const file = photoInput.files && photoInput.files[0];
+      if (!file) {
+        photoPreview.hidden = true;
+        photoPreview.removeAttribute("src");
+        return;
+      }
+
+      const objectUrl = URL.createObjectURL(file);
+      photoPreview.src = objectUrl;
+      photoPreview.hidden = false;
+    });
+
+    toggleSelectionModeBtn.addEventListener("click", () => {
+      selectionMode = !selectionMode;
+      toggleSelectionModeBtn.textContent = selectionMode ? "선택 취소" : "선택 삭제";
+      if (!selectionMode) {
+        document.querySelectorAll(".note-select-checkbox").forEach((checkbox) => {
+          checkbox.checked = false;
+        });
+      }
+      refreshSelectionUi();
+    });
+
+    deleteSelectedNotesBtn.addEventListener("click", async () => {
+      const ids = selectedNoteIds();
+      if (ids.length === 0) {
+        return;
+      }
+
+      if (!window.confirm(`선택한 ${ids.length}개의 오답을 삭제할까요?`)) {
+        return;
+      }
+
+      deleteSelectedNotesBtn.disabled = true;
+      try {
+        const res = await fetch("/api/notes/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.ok) {
+          throw new Error(json.message || "삭제 실패");
+        }
+        window.location.reload();
+      } catch (error) {
+        alert(error.message || "삭제 중 오류가 발생했습니다.");
+        refreshSelectionUi();
+      }
+    });
+
+    parseTextBtn.addEventListener("click", async () => {
+      const rawText = pasteTextEl.value.trim();
+      if (!rawText) {
+        formStatus.textContent = "붙여넣기 텍스트를 먼저 입력해주세요.";
+        return;
+      }
+
+      parseTextBtn.disabled = true;
+      formStatus.textContent = "텍스트 파싱 중입니다...";
+
+      try {
+        const parseRes = await fetch("/api/parse-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ raw_text: rawText }),
+        });
+        const parseJson = await parseRes.json();
+        if (!parseRes.ok || !parseJson.ok) {
+          throw new Error(parseJson.message || "텍스트 파싱 실패");
+        }
+
+        const parsed = parseJson.parsed || {};
+        if (!form.title.value && parsed.title) {
+          form.title.value = parsed.title;
+        }
+        if (parsed.question) {
+          questionTextEl.value = parsed.question;
+        }
+        if (parsed.choices && parsed.choices.length > 0) {
+          choicesTextEl.value = parsed.choices.join("\n");
+        }
+        if (!parsed.question && parsed.normalized_text) {
+          questionTextEl.value = parsed.normalized_text;
+        }
+
+        formStatus.textContent = "파싱 완료: 제목/문제/보기에 반영했습니다.";
+      } catch (error) {
+        formStatus.textContent = error.message || "텍스트 파싱 중 오류가 발생했습니다.";
+      } finally {
+        parseTextBtn.disabled = false;
+      }
+    });
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const file = photoInput.files && photoInput.files[0];
+      if (!file) {
+        formStatus.textContent = "사진을 먼저 선택해주세요.";
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = "등록 중...";
+      formStatus.textContent = "이미지 저장 준비 중입니다...";
+
+      try {
+        const uploadForm = new FormData();
+        uploadForm.append("image", file);
+
+        const uploadRes = await fetch("/api/upload-image", {
+          method: "POST",
+          body: uploadForm,
+        });
+        const uploadJson = await uploadRes.json();
+        if (!uploadRes.ok || !uploadJson.ok) {
+          throw new Error(uploadJson.message || "이미지 업로드 실패");
+        }
+
+        const imageUrl = uploadJson.image_url;
+        formStatus.textContent = "오답 정보를 저장 중입니다...";
+
+        const notePayload = {
+          subject: form.subject.value,
+          title: form.title.value,
+          error_type: form.error_type.value,
+          review_date: form.review_date.value,
+          image_url: imageUrl,
+          question_text: questionTextEl.value.trim(),
+          choices: choicesTextEl.value
+            .split("\n")
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0),
+        };
+
+        const noteRes = await fetch("/api/notes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(notePayload),
+        });
+        const noteJson = await noteRes.json();
+        if (!noteRes.ok || !noteJson.ok) {
+          throw new Error(noteJson.message || "오답 등록 실패");
+        }
+
+        formStatus.textContent = "등록 완료! 목록을 새로고침합니다.";
+        window.setTimeout(() => window.location.reload(), 500);
+      } catch (error) {
+        formStatus.textContent = error.message || "등록 중 오류가 발생했습니다.";
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = "등록하기";
+      }
+    });
+
+    document.querySelectorAll(".note-card").forEach((card) => {
+      const openDetail = () => {
+        const detailUrl = card.dataset.detailUrl;
+        if (detailUrl) {
+          window.open(detailUrl, "_blank", "noopener");
+        }
+      };
+
+      card.addEventListener("click", (event) => {
+        if (event.target.closest(".star-btn") || event.target.closest(".note-select")) {
+          return;
+        }
+      });
+
+      card.addEventListener("dblclick", (event) => {
+        if (event.target.closest(".star-btn") || event.target.closest(".note-select")) {
+          return;
+        }
+        openDetail();
+      });
+
+      card.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          openDetail();
+        }
+      });
+    });
+
+    document.querySelectorAll(".note-select-checkbox").forEach((checkbox) => {
+      checkbox.addEventListener("change", refreshSelectionUi);
+    });
+
+    toggleSelectionModeBtn.textContent = "선택 취소";
+    refreshSelectionUi();
+  </script>
+</body>
+</html>

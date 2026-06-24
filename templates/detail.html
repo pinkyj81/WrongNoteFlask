@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>오답 상세</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="phone-shell detail-shell">
+    <header class="topbar fade-up">
+      <div class="topbar-left">
+        <button class="icon-btn" type="button" onclick="window.close()" aria-label="닫기">←</button>
+        <h1>오답 상세</h1>
+      </div>
+      <div class="actions"></div>
+    </header>
+
+    {% if db_error %}
+    <section class="db-warning fade-up delay-1">{{ db_error }}</section>
+    {% endif %}
+
+    {% if note %}
+    <section class="detail-card fade-up delay-1" data-note-id="{{ note.id }}">
+      <img src="{{ note.image_url }}" alt="오답 문제 이미지" class="detail-image">
+      <div class="detail-meta">
+        <div class="detail-row">
+          <span class="subject-chip subject-{{ note.subject }}">{{ note.subject }}</span>
+          <span class="error-chip">{{ note.error_type }}</span>
+        </div>
+        <h2 class="editable-field" data-field="title">{{ note.title }}</h2>
+        <p class="detail-date">
+          <span class="date-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="2" width="16" height="18" rx="2"></rect>
+              <path d="M8 1v4M16 1v4M4 7h16"></path>
+            </svg>
+          </span>
+          복습일: {{ note.review_date.strftime('%Y.%m.%d') }}
+        </p>
+        <p class="detail-date">
+          <span class="date-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="4" y="2" width="16" height="18" rx="2"></rect>
+              <path d="M8 1v4M16 1v4M4 7h16"></path>
+            </svg>
+          </span>
+          등록일: {{ note.created_at.strftime('%Y.%m.%d %H:%M') }}
+        </p>
+        <p class="edit-hint">제목, 문제 본문, 보기를 더블 클릭하면 수정할 수 있습니다.</p>
+        <div class="detail-actions">
+          <button type="button" class="ghost-btn detail-action-btn" id="openSimilarModal">비슷한 유형 등록</button>
+        </div>
+
+        <section class="detail-sections">
+          {% if note.question_text %}
+          <article class="detail-section">
+            <h3>문제 본문</h3>
+            <pre class="question-box main-question-box editable-field" data-field="question_text">{{ note.question_text }}</pre>
+          </article>
+          {% endif %}
+
+          {% if parsed_choices %}
+          <article class="detail-section">
+            <h3>보기</h3>
+            <p class="choice-inline main-choice-inline editable-field" data-field="choices">{{ parsed_choices | join('\n') }}</p>
+          </article>
+          {% endif %}
+
+          <details class="detail-section similar-accordion">
+            <summary>
+              <span>비슷한 유형 문제 {{ parsed_similar | length }}개</span>
+            </summary>
+            {% if parsed_similar %}
+            <div class="similar-list">
+              {% for item in parsed_similar %}
+              <section class="similar-item" data-similar-index="{{ loop.index0 }}">
+                <h4 class="editable-field" data-field="similar_question">{{ item.number }}. {{ item.question }}</h4>
+                <button type="button" class="answer-toggle-btn">정답 보기</button>
+                {% if item.answer %}
+                <p class="similar-answer" hidden>정답: <span class="editable-field" data-field="similar_answer">{{ item.answer }}</span></p>
+                {% endif %}
+                {% if item.choices %}
+                <p class="choice-inline similar-inline editable-field" data-field="similar_choices">{{ item.choices | join('\n') }}</p>
+                {% endif %}
+              </section>
+              {% endfor %}
+            </div>
+            {% else %}
+            <p class="empty-similar-text">아직 등록된 비슷한 유형이 없습니다. `비슷한 유형 등록` 버튼으로 추가하세요.</p>
+            {% endif %}
+          </details>
+        </section>
+      </div>
+    </section>
+    {% endif %}
+  </main>
+
+  {% if note %}
+  <section class="modal-backdrop" id="similarNoteModal" aria-hidden="true">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="similarModalTitle">
+      <div class="modal-head">
+        <h2 id="similarModalTitle">비슷한 유형 등록</h2>
+        <button class="icon-btn modal-close" id="closeSimilarModal" type="button" aria-label="닫기">✕</button>
+      </div>
+
+      <div class="new-note-form">
+        <label>
+          <span>비슷한 유형 텍스트 붙여넣기</span>
+          <textarea id="similarText" rows="9" placeholder="1. 문제 본문...&#10;① ... ② ...&#10;2. 문제 본문...&#10;&#10;정답&#10;1 ⑤&#10;2 ④"></textarea>
+        </label>
+
+        <div class="preview-actions similar-modal-actions">
+          <button type="button" class="ghost-btn" id="parseSimilarBtn">비슷한 유형 파싱</button>
+          <button type="button" class="new-btn" id="saveSimilarBtn" disabled>저장</button>
+        </div>
+
+        <label>
+          <span>파싱 결과</span>
+          <textarea id="similarPreview" rows="10" readonly placeholder="파싱 결과가 여기에 정리됩니다."></textarea>
+        </label>
+
+        <p class="form-status" id="similarStatus" aria-live="polite"></p>
+      </div>
+    </div>
+  </section>
+  {% endif %}
+
+  {% if note %}
+  <script>
+    const detailCard = document.querySelector(".detail-card");
+    const noteId = detailCard ? detailCard.dataset.noteId : null;
+    const similarModal = document.getElementById("similarNoteModal");
+    const openSimilarModalBtn = document.getElementById("openSimilarModal");
+    const closeSimilarModalBtn = document.getElementById("closeSimilarModal");
+    const similarTextEl = document.getElementById("similarText");
+    const parseSimilarBtn = document.getElementById("parseSimilarBtn");
+    const saveSimilarBtn = document.getElementById("saveSimilarBtn");
+    const similarPreviewEl = document.getElementById("similarPreview");
+    const similarStatusEl = document.getElementById("similarStatus");
+    let parsedSimilarItems = [];
+
+    function openSimilarModal() {
+      if (!similarModal) {
+        return;
+      }
+      similarModal.classList.add("open");
+      similarModal.setAttribute("aria-hidden", "false");
+      similarStatusEl.textContent = "";
+    }
+
+    function closeSimilarModal() {
+      if (!similarModal) {
+        return;
+      }
+      similarModal.classList.remove("open");
+      similarModal.setAttribute("aria-hidden", "true");
+    }
+
+    function currentSimilarItems() {
+      return Array.from(document.querySelectorAll(".similar-item")).map((item, index) => {
+        const questionEl = item.querySelector('[data-field="similar_question"]');
+        const answerEl = item.querySelector('[data-field="similar_answer"]');
+        const choicesEl = item.querySelector('[data-field="similar_choices"]');
+
+        let questionText = questionEl ? questionEl.textContent.trim() : "";
+        questionText = questionText.replace(/^\d+\.\s*/, "").trim();
+
+        return {
+          number: index + 1,
+          question: questionText,
+          answer: answerEl ? answerEl.textContent.trim() : "",
+          choices: choicesEl
+            ? choicesEl.textContent.split("\n").map((line) => line.trim()).filter(Boolean)
+            : [],
+        };
+      });
+    }
+
+    async function saveNotePatch(payload) {
+      if (!noteId) {
+        return;
+      }
+
+      const res = await fetch(`/api/notes/${noteId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json.message || "수정 저장 실패");
+      }
+    }
+
+    function renderSimilarPreview(items) {
+      if (!similarPreviewEl) {
+        return;
+      }
+      similarPreviewEl.value = items.map((item) => {
+        const header = `${item.number}. ${item.question}`;
+        const choices = item.choices && item.choices.length ? item.choices.join("\n") : "";
+        const answer = item.answer ? `\n정답: ${item.answer}` : "";
+        return choices ? `${header}\n${choices}${answer}` : `${header}${answer}`;
+      }).join("\n\n");
+    }
+
+    function enableInlineEdit(element) {
+      const field = element.dataset.field;
+      const originalText = element.textContent.trim();
+      const editor = document.createElement(field === "title" ? "input" : "textarea");
+      editor.className = "inline-editor";
+      if (field === "title") {
+        editor.type = "text";
+        editor.value = originalText;
+      } else {
+        editor.value = originalText;
+        editor.rows = Math.max(3, originalText.split("\n").length + 1);
+      }
+
+      element.replaceWith(editor);
+      editor.focus();
+      if (editor.select) {
+        editor.select();
+      }
+
+      const commit = async () => {
+        const nextText = editor.value.trim();
+        const replacement = element.cloneNode(false);
+        replacement.textContent = nextText || originalText;
+
+        if (field === "choices" || field === "similar_choices") {
+          replacement.textContent = nextText || originalText;
+        }
+
+        editor.replaceWith(replacement);
+        bindEditable(replacement);
+
+        try {
+          if (field === "title") {
+            await saveNotePatch({ title: nextText || originalText });
+          } else if (field === "question_text") {
+            await saveNotePatch({ question_text: nextText });
+          } else if (field === "choices") {
+            await saveNotePatch({
+              choices: (nextText || originalText).split("\n").map((line) => line.trim()).filter(Boolean),
+            });
+          } else if (field === "similar_question" || field === "similar_answer" || field === "similar_choices") {
+            await saveNotePatch({ similar_items: currentSimilarItems() });
+          }
+        } catch (error) {
+          alert(error.message || "수정 저장 중 오류가 발생했습니다.");
+        }
+      };
+
+      editor.addEventListener("blur", () => {
+        commit();
+      }, { once: true });
+
+      editor.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          editor.replaceWith(element);
+          bindEditable(element);
+        }
+        if (event.key === "Enter" && !event.shiftKey && field === "title") {
+          event.preventDefault();
+          editor.blur();
+        }
+      });
+    }
+
+    function bindEditable(element) {
+      element.addEventListener("dblclick", () => enableInlineEdit(element));
+    }
+
+    document.querySelectorAll(".editable-field").forEach(bindEditable);
+
+    openSimilarModalBtn?.addEventListener("click", openSimilarModal);
+    closeSimilarModalBtn?.addEventListener("click", closeSimilarModal);
+    similarModal?.addEventListener("click", (event) => {
+      if (event.target === similarModal) {
+        closeSimilarModal();
+      }
+    });
+
+    parseSimilarBtn?.addEventListener("click", async () => {
+      const rawText = similarTextEl.value.trim();
+      if (!rawText) {
+        similarStatusEl.textContent = "비슷한 유형 텍스트를 먼저 입력해주세요.";
+        return;
+      }
+
+      parseSimilarBtn.disabled = true;
+      similarStatusEl.textContent = "비슷한 유형 파싱 중입니다...";
+
+      try {
+        const res = await fetch("/api/parse-similar-text", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ raw_text: rawText }),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.ok) {
+          throw new Error(json.message || "비슷한 유형 파싱 실패");
+        }
+
+        parsedSimilarItems = Array.isArray(json.similar_items) ? json.similar_items : [];
+        renderSimilarPreview(parsedSimilarItems);
+        saveSimilarBtn.disabled = parsedSimilarItems.length === 0;
+        similarStatusEl.textContent = parsedSimilarItems.length > 0
+          ? `비슷한 유형 ${parsedSimilarItems.length}개 파싱 완료`
+          : "비슷한 유형 파싱 결과가 없습니다.";
+      } catch (error) {
+        similarStatusEl.textContent = error.message || "비슷한 유형 파싱 중 오류가 발생했습니다.";
+      } finally {
+        parseSimilarBtn.disabled = false;
+      }
+    });
+
+    saveSimilarBtn?.addEventListener("click", async () => {
+      if (!parsedSimilarItems.length) {
+        similarStatusEl.textContent = "먼저 비슷한 유형을 파싱해주세요.";
+        return;
+      }
+
+      saveSimilarBtn.disabled = true;
+      try {
+        await saveNotePatch({ similar_items: parsedSimilarItems });
+        similarStatusEl.textContent = "비슷한 유형 저장 완료. 화면을 새로고침합니다.";
+        window.setTimeout(() => window.location.reload(), 400);
+      } catch (error) {
+        similarStatusEl.textContent = error.message || "비슷한 유형 저장 실패";
+        saveSimilarBtn.disabled = false;
+      }
+    });
+
+    document.querySelectorAll(".answer-toggle-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        const answerEl = button.parentElement.querySelector(".similar-answer");
+        if (!answerEl) {
+          return;
+        }
+        const hidden = answerEl.hasAttribute("hidden");
+        if (hidden) {
+          answerEl.removeAttribute("hidden");
+          button.textContent = "정답 숨기기";
+        } else {
+          answerEl.setAttribute("hidden", "hidden");
+          button.textContent = "정답 보기";
+        }
+      });
+    });
+  </script>
+  {% endif %}
+</body>
+</html>
