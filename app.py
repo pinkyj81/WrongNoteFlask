@@ -542,6 +542,7 @@ def create_app() -> Flask:
 
     db.init_app(app)
     app.config["DB_READY"] = False
+    app.config["DB_INIT_ERROR"] = None
 
     @app.route("/")
     def index():
@@ -558,7 +559,10 @@ def create_app() -> Flask:
                     "total": 0,
                     "accuracy": 0,
                 },
-                db_error="DB 연결이 아직 준비되지 않았습니다. 환경변수를 먼저 설정해주세요.",
+                db_error=(
+                    app.config.get("DB_INIT_ERROR")
+                    or "DB 연결이 아직 준비되지 않았습니다. 환경변수를 먼저 설정해주세요."
+                ),
             )
 
         subject_filter = request.args.get("subject", "전체")
@@ -947,13 +951,21 @@ def create_app() -> Flask:
 
     @app.get("/health")
     def health():
-        return jsonify({"ok": True, "service": "WrongNoteFlask"})
+        return jsonify(
+            {
+                "ok": True,
+                "service": "WrongNoteFlask",
+                "db_ready": bool(app.config.get("DB_READY")),
+                "db_error": app.config.get("DB_INIT_ERROR"),
+            }
+        )
 
     with app.app_context():
         try:
             ensure_wrong_notes_schema()
             app.config["DB_READY"] = True
         except Exception as exc:
+            app.config["DB_INIT_ERROR"] = f"DB initialization failed: {exc}"
             print(f"[WrongNoteFlask] DB initialization skipped: {exc}")
 
     return app

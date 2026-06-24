@@ -17,9 +17,9 @@ services:
         value: "false"
       - key: DB_SERVER
         sync: false
-      - key: DB_NAME
+      - key: DB_DATABASE
         sync: false
-      - key: DB_USER
+      - key: DB_USERNAME
         sync: false
       - key: DB_PASSWORD
         sync: false
