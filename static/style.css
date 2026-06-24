@@ -765,8 +765,9 @@ body {
   font-size: 16px;
   line-height: 1.45;
   color: #1f2633;
-  white-space: nowrap;
-  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 
 .similar-inline {
