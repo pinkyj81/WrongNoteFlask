@@ -20,12 +20,23 @@ def env_first(*keys: str, default: str = "") -> str:
     return default
 
 
+def normalize_sql_server_driver(driver: str) -> str:
+    normalized = (driver or "").strip()
+    aliases = {
+        "ODBC Driver 18": "ODBC Driver 18 for SQL Server",
+        "ODBC Driver 17": "ODBC Driver 17 for SQL Server",
+    }
+    return aliases.get(normalized, normalized)
+
+
 def build_db_uri() -> str:
     direct_uri = env_first("DB_URI", default="")
     if direct_uri:
         return direct_uri
 
-    driver = env_first("DB_DRIVER", default="ODBC Driver 18 for SQL Server")
+    driver = normalize_sql_server_driver(
+        env_first("DB_DRIVER", default="ODBC Driver 18 for SQL Server")
+    )
     server = env_first("DB_SERVER", default="ms1901.gabiadb.com")
     database = env_first("DB_NAME", "DB_DATABASE", default="yujincast")
     username = env_first("DB_USER", "DB_USERNAME", default="")
