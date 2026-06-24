@@ -6,6 +6,10 @@ services:
     plan: free
     autoDeploy: true
     healthCheckPath: /health
+    disk:
+      name: uploads
+      mountPath: /app/static/uploads
+      sizeGB: 5
     envVars:
       - key: PORT
         value: 8080
