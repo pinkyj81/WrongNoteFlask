@@ -3,6 +3,7 @@ import re
 import uuid
 import json
 from datetime import date, datetime
+from urllib.parse import urlparse
 
 import cv2
 import numpy as np
@@ -57,7 +58,7 @@ class WrongNote(db.Model):
             "subject": self.subject,
             "title": self.title,
             "error_type": self.error_type,
-            "image_url": self.image_url,
+            "image_url": normalize_image_url(self.image_url),
             "question_text": self.question_text,
             "choices": parsed_choices,
             "similar_items": parsed_similar,
@@ -65,6 +66,39 @@ class WrongNote(db.Model):
             "review_date": self.review_date.isoformat(),
             "created_at": self.created_at.isoformat(),
         }
+
+
+def normalize_image_url(raw_url: str) -> str:
+    value = str(raw_url or "").strip()
+    if not value:
+        return ""
+
+    normalized = value.replace("\\", "/")
+
+    static_marker = "/static/uploads/"
+    marker_index = normalized.find(static_marker)
+    if marker_index >= 0:
+        return normalized[marker_index:]
+
+    if normalized.startswith("static/uploads/"):
+        return f"/{normalized}"
+
+    if normalized.startswith("/uploads/"):
+        return f"/static{normalized}"
+
+    if normalized.startswith("uploads/"):
+        return f"/static/{normalized}"
+
+    if normalized.startswith(("http://", "https://")):
+        parsed = urlparse(normalized)
+        host = (parsed.hostname or "").lower()
+        if host in {"127.0.0.1", "localhost"} and parsed.path:
+            if parsed.path.startswith("/static/"):
+                return parsed.path
+            if parsed.path.startswith("/uploads/"):
+                return f"/static{parsed.path}"
+
+    return normalized
 
 
 def build_subject_counts(notes):
@@ -574,6 +608,9 @@ def create_app() -> Flask:
         if subject_filter != "전체":
             notes = [item for item in all_notes if item.subject == subject_filter]
 
+        for item in notes:
+            item.image_url = normalize_image_url(item.image_url)
+
         today = date.today()
         review_today = sum(1 for item in all_notes if not item.solved and item.review_date <= today)
         completed = sum(1 for item in all_notes if item.solved)
@@ -636,6 +673,8 @@ def create_app() -> Flask:
         if note is None:
             return render_template("detail.html", note=None, db_error="해당 오답을 찾을 수 없습니다."), 404
 
+        note.image_url = normalize_image_url(note.image_url)
+
         parsed_choices = []
         if note.choices_json:
             try:
@@ -686,7 +725,7 @@ def create_app() -> Flask:
             subject=payload["subject"],
             title=payload["title"],
             error_type=payload["error_type"],
-            image_url=payload["image_url"],
+            image_url=normalize_image_url(payload["image_url"]),
             question_text=(payload.get("question_text") or None),
             choices_json=(
                 json.dumps(choices_list, ensure_ascii=False)

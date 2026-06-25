@@ -241,7 +241,7 @@
           <textarea id="choicesText" name="choices_text" rows="4" placeholder="① 3&#10;② 6&#10;③ 12"></textarea>
         </label>
 
-        <p class="form-hint">모바일에서는 카메라가 바로 열릴 수 있고, PC에서는 파일 선택창이 열립니다.</p>
+        <p class="form-hint">모바일에서는 카메라가 바로 열릴 수 있고, PC에서는 파일 선택창이 열립니다. 붙여넣기(Ctrl+V)로 이미지 등록도 가능합니다.</p>
         <p class="form-status" id="formStatus" aria-live="polite"></p>
 
         <div class="form-actions">
@@ -313,6 +313,30 @@
       modal.setAttribute("aria-hidden", "true");
     }
 
+    function isModalOpen() {
+      return modal.classList.contains("open");
+    }
+
+    function setPhotoFile(file, sourceLabel = "") {
+      if (!file || !file.type || !file.type.startsWith("image/")) {
+        return false;
+      }
+
+      const finalFile = file.name
+        ? file
+        : new File([file], `pasted-image-${Date.now()}.png`, { type: file.type || "image/png" });
+
+      const transfer = new DataTransfer();
+      transfer.items.add(finalFile);
+      photoInput.files = transfer.files;
+      photoInput.dispatchEvent(new Event("change"));
+
+      if (sourceLabel) {
+        formStatus.textContent = `${sourceLabel} 이미지를 사진으로 설정했습니다.`;
+      }
+      return true;
+    }
+
     openBtn.addEventListener("click", openModal);
     closeBtn.addEventListener("click", closeModal);
     cancelBtn.addEventListener("click", closeModal);
@@ -334,6 +358,27 @@
       const objectUrl = URL.createObjectURL(file);
       photoPreview.src = objectUrl;
       photoPreview.hidden = false;
+    });
+
+    document.addEventListener("paste", (event) => {
+      if (!isModalOpen()) {
+        return;
+      }
+
+      const items = event.clipboardData?.items;
+      if (!items || items.length === 0) {
+        return;
+      }
+
+      for (const item of items) {
+        if (item.type && item.type.startsWith("image/")) {
+          const imageFile = item.getAsFile();
+          if (imageFile && setPhotoFile(imageFile, "붙여넣은")) {
+            event.preventDefault();
+          }
+          return;
+        }
+      }
     });
 
     toggleSelectionModeBtn.addEventListener("click", () => {
