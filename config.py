@@ -62,7 +62,27 @@ class AppConfig:
         "pool_recycle": 1800,
         "pool_timeout": 30,
     }
-    UPLOAD_FOLDER = str(BASE_DIR / "static" / "uploads")
+    UPLOAD_FOLDER = env_first(
+        "UPLOAD_FOLDER",
+        default="/home/yujin/public_html/uploads",
+    )
+    UPLOAD_PUBLIC_BASE_URL = env_first(
+        "UPLOAD_PUBLIC_BASE_URL",
+        "GABIA_IMAGE_BASE_URL",
+        default="https://yujin.speedgabia.com/uploads",
+    )
+
+    FTP_HOST = env_first("FTP_HOST", "GABIA_FTP_HOST", default="")
+    FTP_PORT = int(env_first("FTP_PORT", "GABIA_FTP_PORT", default="21"))
+    FTP_USERNAME = env_first("FTP_USERNAME", "FTP_USER", "GABIA_FTP_USER", default="")
+    FTP_PASSWORD = env_first("FTP_PASSWORD", "GABIA_FTP_PASSWORD", default="")
+    FTP_UPLOAD_DIR = env_first("FTP_UPLOAD_DIR", "GABIA_FTP_PATH", default="/uploads")
+    FTP_PUBLIC_BASE_URL = env_first(
+        "FTP_PUBLIC_BASE_URL",
+        "UPLOAD_PUBLIC_BASE_URL",
+        "GABIA_IMAGE_BASE_URL",
+        default="https://yujin.speedgabia.com/uploads",
+    )
 
     DB_SERVER = env_first("DB_SERVER", default="ms1901.gabiadb.com")
     DB_NAME = env_first("DB_NAME", "DB_DATABASE", default="yujincast")

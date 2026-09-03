@@ -1,13 +1,15 @@
+import io
 import os
 import re
 import uuid
 import json
+import ftplib
 from datetime import date, datetime
 from urllib.parse import urlparse
 
 import cv2
 import numpy as np
-from flask import Flask, jsonify, render_template, request, url_for
+from flask import Flask, current_app, jsonify, render_template, request, send_from_directory, url_for
 from sqlalchemy import inspect, text
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
@@ -75,30 +77,130 @@ def normalize_image_url(raw_url: str) -> str:
 
     normalized = value.replace("\\", "/")
 
-    static_marker = "/static/uploads/"
-    marker_index = normalized.find(static_marker)
-    if marker_index >= 0:
-        return normalized[marker_index:]
-
-    if normalized.startswith("static/uploads/"):
-        return f"/{normalized}"
-
-    if normalized.startswith("/uploads/"):
-        return f"/static{normalized}"
-
-    if normalized.startswith("uploads/"):
-        return f"/static/{normalized}"
-
     if normalized.startswith(("http://", "https://")):
         parsed = urlparse(normalized)
         host = (parsed.hostname or "").lower()
         if host in {"127.0.0.1", "localhost"} and parsed.path:
+            if parsed.path.startswith("/uploads/"):
+                return parsed.path
             if parsed.path.startswith("/static/"):
                 return parsed.path
-            if parsed.path.startswith("/uploads/"):
-                return f"/static{parsed.path}"
+
+    if normalized.startswith("/uploads/"):
+        return normalized
+
+    if normalized.startswith("uploads/"):
+        return f"/{normalized}"
+
+    static_marker = "/static/uploads/"
+    marker_index = normalized.find(static_marker)
+    if marker_index >= 0:
+        return normalized[marker_index:].replace("/static/uploads/", "/uploads/")
+
+    if normalized.startswith("static/uploads/"):
+        return f"/{normalized.replace('static/uploads/', 'uploads/')}"
 
     return normalized
+
+
+def build_uploaded_image_url(save_path: str, upload_root: str) -> str:
+    public_base_url = (
+        os.getenv("UPLOAD_PUBLIC_BASE_URL")
+        or os.getenv("FTP_PUBLIC_BASE_URL")
+        or (current_app.config.get("UPLOAD_PUBLIC_BASE_URL") if current_app else "")
+        or (current_app.config.get("FTP_PUBLIC_BASE_URL") if current_app else "")
+    )
+    if public_base_url:
+        rel_path = os.path.relpath(save_path, start=upload_root).replace("\\", "/")
+        return f"{public_base_url.rstrip('/')}/{rel_path.lstrip('/')}"
+
+    try:
+        rel_path = os.path.relpath(save_path, start=upload_root)
+        return url_for("uploaded_file", filename=rel_path.replace("\\", "/"))
+    except Exception:
+        return url_for("static", filename=os.path.relpath(save_path, start=os.path.abspath(os.path.join(os.path.dirname(__file__), "static")).replace("\\", "/")))
+
+
+def ensure_remote_dirs(ftp_conn: ftplib.FTP, target_dir: str) -> None:
+    if not target_dir or target_dir == ".":
+        return
+
+    normalized = target_dir.replace("\\", "/").strip("/")
+    if not normalized:
+        return
+
+    parts = [part for part in normalized.split("/") if part]
+    if not parts:
+        return
+
+    ftp_conn.cwd("/")
+    for part in parts:
+        try:
+            ftp_conn.cwd(part)
+        except ftplib.error_perm:
+            ftp_conn.mkd(part)
+            ftp_conn.cwd(part)
+
+
+def upload_to_ftp(file_bytes: bytes, remote_rel_dir: str, filename: str) -> str:
+    ftp_host = (
+        current_app.config.get("FTP_HOST")
+        or current_app.config.get("GABIA_FTP_HOST")
+        or os.getenv("FTP_HOST")
+        or os.getenv("GABIA_FTP_HOST")
+    )
+    ftp_port = int(current_app.config.get("FTP_PORT") or current_app.config.get("GABIA_FTP_PORT") or os.getenv("FTP_PORT") or os.getenv("GABIA_FTP_PORT") or "21")
+    ftp_user = (
+        current_app.config.get("FTP_USERNAME")
+        or current_app.config.get("FTP_USER")
+        or current_app.config.get("GABIA_FTP_USER")
+        or os.getenv("FTP_USERNAME")
+        or os.getenv("FTP_USER")
+        or os.getenv("GABIA_FTP_USER")
+    )
+    ftp_password = (
+        current_app.config.get("FTP_PASSWORD")
+        or current_app.config.get("GABIA_FTP_PASSWORD")
+        or os.getenv("FTP_PASSWORD")
+        or os.getenv("GABIA_FTP_PASSWORD")
+    )
+    ftp_upload_dir = (
+        current_app.config.get("FTP_UPLOAD_DIR")
+        or current_app.config.get("GABIA_FTP_PATH")
+        or os.getenv("FTP_UPLOAD_DIR")
+        or os.getenv("GABIA_FTP_PATH")
+        or "/uploads"
+    )
+    public_base_url = (
+        current_app.config.get("FTP_PUBLIC_BASE_URL")
+        or current_app.config.get("UPLOAD_PUBLIC_BASE_URL")
+        or current_app.config.get("GABIA_IMAGE_BASE_URL")
+        or os.getenv("FTP_PUBLIC_BASE_URL")
+        or os.getenv("UPLOAD_PUBLIC_BASE_URL")
+        or os.getenv("GABIA_IMAGE_BASE_URL")
+        or "https://yujin.speedgabia.com/uploads"
+    )
+
+    if not ftp_host or not ftp_user:
+        raise ValueError("FTP_HOST and FTP_USERNAME must be configured")
+
+    target_dir = ftp_upload_dir.strip().replace("\\", "/").rstrip("/")
+    remote_rel_dir = (remote_rel_dir or "").replace("\\", "/").strip("/")
+    if remote_rel_dir:
+        target_dir = f"{target_dir.rstrip('/')}/{remote_rel_dir}"
+
+    ftp_conn = ftplib.FTP()
+    ftp_conn.connect(ftp_host, ftp_port)
+    ftp_conn.login(ftp_user, ftp_password)
+    try:
+        ensure_remote_dirs(ftp_conn, target_dir)
+        ftp_conn.cwd(target_dir)
+        ftp_conn.storbinary(f"STOR {filename}", io.BytesIO(file_bytes))
+    finally:
+        ftp_conn.quit()
+
+    remote_url = f"{public_base_url.rstrip('/')}/{remote_rel_dir.rstrip('/')}/{filename}" if remote_rel_dir else f"{public_base_url.rstrip('/')}/{filename}"
+    return remote_url
 
 
 def build_subject_counts(notes):
@@ -572,7 +674,14 @@ def build_upload_paths(base_upload_dir: str, bucket: str, ext: str, suffix: str 
 def create_app() -> Flask:
     app = Flask(__name__)
     app.config.from_object(AppConfig)
-    os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
+
+    upload_dir = os.path.abspath(app.config["UPLOAD_FOLDER"])
+    app.config["UPLOAD_FOLDER"] = upload_dir
+    os.makedirs(upload_dir, exist_ok=True)
+
+    @app.route("/uploads/<path:filename>")
+    def uploaded_file(filename: str):
+        return send_from_directory(upload_dir, filename)
 
     db.init_app(app)
     app.config["DB_READY"] = False
@@ -756,10 +865,28 @@ def create_app() -> Flask:
 
         payload = request.get_json(silent=True) or {}
 
+        if "subject" in payload:
+            subject = str(payload.get("subject") or "").strip()
+            if subject:
+                note.subject = subject[:30]
+
         if "title" in payload:
             title = str(payload.get("title") or "").strip()
             if title:
                 note.title = title[:200]
+            else:
+                return jsonify({"ok": False, "message": "title is required"}), 400
+
+        if "error_type" in payload:
+            error_type = str(payload.get("error_type") or "").strip()
+            if error_type:
+                note.error_type = error_type[:50]
+
+        if "review_date" in payload:
+            try:
+                note.review_date = datetime.strptime(str(payload.get("review_date") or ""), "%Y-%m-%d").date()
+            except ValueError:
+                return jsonify({"ok": False, "message": "review_date format must be YYYY-MM-DD"}), 400
 
         if "question_text" in payload:
             question_text = str(payload.get("question_text") or "").strip()
@@ -804,6 +931,99 @@ def create_app() -> Flask:
         db.session.commit()
         return jsonify({"ok": True, "deleted_count": deleted_count})
 
+    @app.get("/test-upload")
+    def test_upload_page():
+        return render_template("upload_test.html")
+
+    @app.post("/api/test-upload")
+    def api_test_upload():
+        image_file = request.files.get("image")
+        if image_file is None or image_file.filename == "":
+            return jsonify({"ok": False, "message": "image file is required"}), 400
+
+        if not is_allowed_image(image_file.filename):
+            allowed = ", ".join(sorted(ALLOWED_IMAGE_EXTENSIONS))
+            return jsonify({"ok": False, "message": f"allowed extensions: {allowed}"}), 400
+
+        upload_dir = os.path.abspath(app.config["UPLOAD_FOLDER"])
+        os.makedirs(upload_dir, exist_ok=True)
+
+        original_name = secure_filename(image_file.filename)
+        ext = original_name.rsplit(".", 1)[1].lower()
+        payload_bytes = image_file.read()
+
+        ftp_host = app.config.get("FTP_HOST") or os.getenv("FTP_HOST")
+        ftp_user = app.config.get("FTP_USERNAME") or app.config.get("FTP_USER") or os.getenv("FTP_USERNAME") or os.getenv("FTP_USER")
+        if ftp_host and ftp_user:
+            date_path = datetime.utcnow().strftime("%Y/%m/%d")
+            filename = f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}_test.{ext}"
+            try:
+                image_url = upload_to_ftp(payload_bytes, remote_rel_dir=date_path, filename=filename)
+                return jsonify({
+                    "ok": True,
+                    "image_url": image_url,
+                    "saved_path": f"ftp://{ftp_host}/{date_path}/{filename}",
+                    "upload_folder": upload_dir,
+                    "storage": "ftp",
+                })
+            except Exception as exc:
+                return jsonify({"ok": False, "message": f"FTP upload failed: {exc}"}), 500
+
+        save_path, _ = build_upload_paths(
+            app.config["UPLOAD_FOLDER"],
+            bucket="test",
+            ext=ext,
+            suffix="_test",
+        )
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, "wb") as fp:
+            fp.write(payload_bytes)
+
+        if not os.path.exists(save_path):
+            return jsonify({"ok": False, "message": "upload save failed"}), 500
+
+        image_url = build_uploaded_image_url(save_path, app.config["UPLOAD_FOLDER"])
+        return jsonify({
+            "ok": True,
+            "image_url": image_url,
+            "saved_path": save_path,
+            "upload_folder": upload_dir,
+            "storage": "local",
+        })
+
+    @app.post("/api/save-image-url-test")
+    def save_image_url_test():
+        if not app.config.get("DB_READY"):
+            return jsonify({"ok": False, "message": "database not ready"}), 503
+
+        payload = request.get_json(silent=True) or {}
+        image_url = str(payload.get("image_url") or "").strip()
+        if not image_url:
+            return jsonify({"ok": False, "message": "image_url is required"}), 400
+
+        try:
+            review_date = datetime.strptime(str(payload.get("review_date") or date.today().isoformat()), "%Y-%m-%d").date()
+        except ValueError:
+            return jsonify({"ok": False, "message": "review_date format must be YYYY-MM-DD"}), 400
+
+        note = WrongNote(
+            subject=str(payload.get("subject") or "기타").strip()[:30],
+            title=str(payload.get("title") or "Gabia 업로드 테스트").strip()[:200],
+            error_type=str(payload.get("error_type") or "업로드 테스트").strip()[:50],
+            image_url=normalize_image_url(image_url),
+            question_text=(payload.get("question_text") or None),
+            review_date=review_date,
+            solved=False,
+        )
+        db.session.add(note)
+        db.session.commit()
+        return jsonify({
+            "ok": True,
+            "id": note.id,
+            "image_url": note.image_url,
+            "saved_at": note.created_at.isoformat(),
+        })
+
     @app.post("/api/upload-image")
     def upload_image():
         image_file = request.files.get("image")
@@ -845,16 +1065,41 @@ def create_app() -> Flask:
         bucket = "clean" if clean_pencil or focus_region else "raw"
         suffix = "_clean" if clean_pencil or focus_region else ""
 
+        ftp_host = app.config.get("FTP_HOST") or os.getenv("FTP_HOST")
+        ftp_user = app.config.get("FTP_USERNAME") or app.config.get("FTP_USER") or os.getenv("FTP_USERNAME") or os.getenv("FTP_USER")
+        if ftp_host and ftp_user:
+            utc_now = datetime.utcnow()
+            date_path = utc_now.strftime("%Y/%m/%d")
+            filename = f"{utc_now.strftime('%Y%m%d%H%M%S')}_{uuid.uuid4().hex[:8]}{suffix}.{ext}"
+            try:
+                image_url = upload_to_ftp(payload_bytes, remote_rel_dir=date_path, filename=filename)
+                return jsonify(
+                    {
+                        "ok": True,
+                        "image_url": image_url,
+                        "clean_pencil": clean_pencil,
+                        "clean_strength": clean_strength,
+                        "focus_region": focus_region,
+                        "storage": "ftp",
+                    }
+                )
+            except Exception as exc:
+                return jsonify({"ok": False, "message": f"FTP upload failed: {exc}"}), 500
+
         save_path, static_rel_path = build_upload_paths(
             app.config["UPLOAD_FOLDER"],
             bucket=bucket,
             ext=ext,
             suffix=suffix,
         )
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         with open(save_path, "wb") as fp:
             fp.write(payload_bytes)
 
-        image_url = url_for("static", filename=static_rel_path)
+        if not os.path.exists(save_path):
+            return jsonify({"ok": False, "message": "image save failed"}), 500
+
+        image_url = build_uploaded_image_url(save_path, app.config["UPLOAD_FOLDER"])
         return jsonify(
             {
                 "ok": True,
@@ -862,6 +1107,7 @@ def create_app() -> Flask:
                 "clean_pencil": clean_pencil,
                 "clean_strength": clean_strength,
                 "focus_region": focus_region,
+                "storage": "local",
             }
         )
 
@@ -909,10 +1155,14 @@ def create_app() -> Flask:
             ext=ext,
             suffix="_preview",
         )
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
         with open(save_path, "wb") as fp:
             fp.write(payload_bytes)
 
-        preview_url = url_for("static", filename=static_rel_path)
+        if not os.path.exists(save_path):
+            return jsonify({"ok": False, "message": "preview save failed"}), 500
+
+        preview_url = build_uploaded_image_url(save_path, app.config["UPLOAD_FOLDER"])
         return jsonify(
             {
                 "ok": True,
