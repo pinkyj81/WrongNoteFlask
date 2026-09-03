@@ -137,6 +137,7 @@
               <span class="error-chip">{{ note.error_type }}</span>
             </div>
             <div class="note-actions">
+              <button class="edit-btn" type="button" data-note-id="{{ note.id }}" aria-label="수정">수정</button>
               <button class="star-btn" aria-label="즐겨찾기">☆</button>
               <button class="menu-btn" aria-label="메뉴">⋮</button>
             </div>
@@ -170,6 +171,66 @@
     </footer>
   </main>
 
+  <section class="modal-backdrop" id="editNoteModal" aria-hidden="true">
+    <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="editNoteTitle">
+      <div class="modal-head">
+        <h2 id="editNoteTitle">오답 수정</h2>
+        <button class="icon-btn modal-close" id="closeEditNoteModal" type="button" aria-label="닫기">✕</button>
+      </div>
+
+      <form id="editNoteForm" class="new-note-form">
+        <input type="hidden" name="note_id">
+
+        <label>
+          <span>과목</span>
+          <select name="subject" required>
+            <option value="수학">수학</option>
+            <option value="영어">영어</option>
+            <option value="과학">과학</option>
+            <option value="국어">국어</option>
+            <option value="기타">기타</option>
+          </select>
+        </label>
+
+        <label>
+          <span>제목</span>
+          <input type="text" name="title" required placeholder="예: 이차함수 최대/최소">
+        </label>
+
+        <label>
+          <span>실수 유형</span>
+          <select name="error_type" required>
+            <option value="계산 실수">계산 실수</option>
+            <option value="개념 부족">개념 부족</option>
+            <option value="기타">기타</option>
+          </select>
+        </label>
+
+        <label>
+          <span>복습일</span>
+          <input type="date" name="review_date" required>
+        </label>
+
+        <label>
+          <span>문제 본문(분리 저장)</span>
+          <textarea name="question_text" rows="5" placeholder="문제 본문을 입력하세요."></textarea>
+        </label>
+
+        <label>
+          <span>보기(줄바꿈으로 분리 저장)</span>
+          <textarea name="choices_text" rows="4" placeholder="① 3&#10;② 6&#10;③ 12"></textarea>
+        </label>
+
+        <p class="form-status" id="editFormStatus" aria-live="polite"></p>
+
+        <div class="form-actions">
+          <button type="button" class="ghost-btn" id="cancelEditNote">취소</button>
+          <button type="submit" class="new-btn" id="submitEditNote">수정 저장</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
   <section class="modal-backdrop" id="newNoteModal" aria-hidden="true">
     <div class="modal-sheet" role="dialog" aria-modal="true" aria-labelledby="newNoteTitle">
       <div class="modal-head">
@@ -191,7 +252,16 @@
 
         <label>
           <span>제목</span>
-          <input type="text" name="title" required placeholder="예: 이차함수 최대/최소">
+          <input
+            type="text"
+            name="title"
+            id="noteTitleInput"
+            list="titleSuggestions"
+            autocomplete="off"
+            required
+            placeholder="예: 이차함수 최대/최소 또는 기존 제목 선택"
+          >
+          <datalist id="titleSuggestions"></datalist>
         </label>
 
         <label>
@@ -254,10 +324,17 @@
 
   <script>
     const modal = document.getElementById("newNoteModal");
+    const editModal = document.getElementById("editNoteModal");
     const openBtn = document.getElementById("openNewNoteModal");
     const closeBtn = document.getElementById("closeNewNoteModal");
+    const closeEditBtn = document.getElementById("closeEditNoteModal");
     const cancelBtn = document.getElementById("cancelNewNote");
+    const cancelEditBtn = document.getElementById("cancelEditNote");
     const form = document.getElementById("newNoteForm");
+    const editForm = document.getElementById("editNoteForm");
+    const editStatus = document.getElementById("editFormStatus");
+    const titleInput = document.getElementById("noteTitleInput");
+    const titleSuggestions = document.getElementById("titleSuggestions");
     const photoInput = document.getElementById("photoInput");
     const pasteTextEl = document.getElementById("pasteText");
     const parseTextBtn = document.getElementById("parseTextBtn");
@@ -277,6 +354,28 @@
       const localToday = new Date(today.getTime() - (today.getTimezoneOffset() * 60000));
       reviewDateInput.value = localToday.toISOString().slice(0, 10);
     }
+
+    function refreshTitleSuggestions() {
+      const existingTitles = Array.from(document.querySelectorAll(".note-card h2"))
+        .map((node) => (node.textContent || "").trim())
+        .filter((text) => text.length > 0);
+
+      const uniqueTitles = [...new Set(existingTitles)];
+      titleSuggestions.innerHTML = "";
+
+      uniqueTitles.forEach((title) => {
+        const option = document.createElement("option");
+        option.value = title;
+        titleSuggestions.appendChild(option);
+      });
+    }
+
+    titleInput?.addEventListener("focus", refreshTitleSuggestions);
+    titleInput?.addEventListener("input", () => {
+      if (!titleInput.value.trim()) {
+        refreshTitleSuggestions();
+      }
+    });
 
     function selectedNoteIds() {
       return Array.from(document.querySelectorAll(".note-select-checkbox:checked"))
@@ -313,8 +412,46 @@
       modal.setAttribute("aria-hidden", "true");
     }
 
+    function closeEditModal() {
+      if (!editModal) {
+        return;
+      }
+      editModal.classList.remove("open");
+      editModal.setAttribute("aria-hidden", "true");
+    }
+
     function isModalOpen() {
       return modal.classList.contains("open");
+    }
+
+    async function openEditModal(noteId) {
+      if (!editModal || !editForm) {
+        return;
+      }
+
+      try {
+        editStatus.textContent = "기존 내용을 불러오는 중입니다...";
+        const res = await fetch("/api/notes");
+        const notes = await res.json();
+        const target = Array.isArray(notes) ? notes.find((item) => Number(item.id) === Number(noteId)) : null;
+        if (!target) {
+          throw new Error("수정할 오답을 찾지 못했습니다.");
+        }
+
+        editForm.note_id.value = target.id;
+        editForm.subject.value = target.subject || "수학";
+        editForm.title.value = target.title || "";
+        editForm.error_type.value = target.error_type || "계산 실수";
+        editForm.review_date.value = target.review_date || "";
+        editForm.question_text.value = target.question_text || "";
+        editForm.choices_text.value = Array.isArray(target.choices) ? target.choices.join("\n") : "";
+
+        editModal.classList.add("open");
+        editModal.setAttribute("aria-hidden", "false");
+        editStatus.textContent = "";
+      } catch (error) {
+        editStatus.textContent = error.message || "수정 내용을 불러오지 못했습니다.";
+      }
     }
 
     function setPhotoFile(file, sourceLabel = "") {
@@ -340,10 +477,67 @@
     openBtn.addEventListener("click", openModal);
     closeBtn.addEventListener("click", closeModal);
     cancelBtn.addEventListener("click", closeModal);
+    closeEditBtn.addEventListener("click", closeEditModal);
+    cancelEditBtn.addEventListener("click", closeEditModal);
 
     modal.addEventListener("click", (event) => {
       if (event.target === modal) {
         closeModal();
+      }
+    });
+
+    editModal?.addEventListener("click", (event) => {
+      if (event.target === editModal) {
+        closeEditModal();
+      }
+    });
+
+    document.querySelectorAll(".edit-btn").forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const noteId = button.dataset.noteId;
+        if (!noteId) {
+          return;
+        }
+        await openEditModal(noteId);
+      });
+    });
+
+    editForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const noteId = editForm.note_id.value;
+      const payload = {
+        subject: editForm.subject.value,
+        title: editForm.title.value.trim(),
+        error_type: editForm.error_type.value,
+        review_date: editForm.review_date.value,
+        question_text: editForm.question_text.value.trim(),
+        choices: editForm.choices_text.value
+          .split("\n")
+          .map((line) => line.trim())
+          .filter((line) => line.length > 0),
+      };
+
+      if (!payload.title) {
+        editStatus.textContent = "제목을 입력해주세요.";
+        return;
+      }
+
+      try {
+        editStatus.textContent = "수정 중입니다...";
+        const res = await fetch(`/api/notes/${noteId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const json = await res.json();
+        if (!res.ok || !json.ok) {
+          throw new Error(json.message || "수정 실패");
+        }
+        editStatus.textContent = "수정 완료! 목록을 새로고침합니다.";
+        window.setTimeout(() => window.location.reload(), 400);
+      } catch (error) {
+        editStatus.textContent = error.message || "수정 중 오류가 발생했습니다.";
       }
     });
 
@@ -534,13 +728,13 @@
       };
 
       card.addEventListener("click", (event) => {
-        if (event.target.closest(".star-btn") || event.target.closest(".note-select")) {
+        if (event.target.closest(".star-btn") || event.target.closest(".edit-btn") || event.target.closest(".note-select")) {
           return;
         }
       });
 
       card.addEventListener("dblclick", (event) => {
-        if (event.target.closest(".star-btn") || event.target.closest(".note-select")) {
+        if (event.target.closest(".star-btn") || event.target.closest(".edit-btn") || event.target.closest(".note-select")) {
           return;
         }
         openDetail();
